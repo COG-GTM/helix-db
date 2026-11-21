@@ -167,6 +167,8 @@ impl VectorCore {
     }
 
     #[inline(always)]
+    /// Neighbors for which `skip` returns true are left out before their vector data is read.
+    #[allow(clippy::too_many_arguments)]
     fn get_neighbors<'db: 'arena, 'arena: 'txn, 'txn, F>(
         &self,
         txn: &'txn RoTxn<'db>,
@@ -174,6 +176,7 @@ impl VectorCore {
         id: u128,
         level: usize,
         filter: Option<&[F]>,
+        skip: impl Fn(u128) -> bool,
         arena: &'arena bumpalo::Bump,
     ) -> Result<bumpalo::collections::Vec<'arena, HVector<'arena>>, VectorError>
     where
@@ -199,7 +202,7 @@ impl VectorCore {
             arr[..16].copy_from_slice(&key[prefix_len..(prefix_len + 16)]);
             let neighbor_id = u128::from_be_bytes(arr);
 
-            if neighbor_id == id {
+            if neighbor_id == id || skip(neighbor_id) {
                 continue;
             }
             let vector = self.get_raw_vector_data(txn, neighbor_id, label, arena)?;
@@ -283,9 +286,15 @@ impl VectorCore {
         let mut visited: HashSet<u128> = HashSet::new();
         let mut result = BinaryHeap::with_capacity(arena, m * cands.len());
         for candidate in cands.iter() {
-            for mut neighbor in
-                self.get_neighbors(txn, label, candidate.id, level, filter, arena)?
-            {
+            for mut neighbor in self.get_neighbors(
+                txn,
+                label,
+                candidate.id,
+                level,
+                filter,
+                |id| visited.contains(&id),
+                arena,
+            )? {
                 if !visited.insert(neighbor.id) {
                     continue;
                 }
@@ -343,43 +352,51 @@ impl VectorCore {
         while let Some(curr_cand) = candidates.pop() {
             if results.len() >= ef
                 && results
-                    .get_max()
+                    .peek()
                     .is_none_or(|f| curr_cand.distance > f.get_distance())
             {
                 break;
             }
 
             let max_distance = if results.len() >= ef {
-                results.get_max().map(|f| f.get_distance())
+                results.peek().map(|f| f.get_distance())
             } else {
                 None
             };
 
-            self.get_neighbors(txn, label, curr_cand.id, level, filter, arena)?
-                .into_iter()
-                .filter(|neighbor| visited.insert(neighbor.id))
-                .filter_map(|mut neighbor| {
-                    let distance = neighbor.distance_to(query).ok()?;
+            self.get_neighbors(
+                txn,
+                label,
+                curr_cand.id,
+                level,
+                filter,
+                |id| visited.contains(&id),
+                arena,
+            )?
+            .into_iter()
+            .filter(|neighbor| visited.insert(neighbor.id))
+            .filter_map(|mut neighbor| {
+                let distance = neighbor.distance_to(query).ok()?;
 
-                    if max_distance.is_none_or(|max| distance < max) {
-                        neighbor.set_distance(distance);
-                        Some((neighbor, distance))
-                    } else {
-                        None
-                    }
-                })
-                .for_each(|(neighbor, distance)| {
-                    candidates.push(Candidate {
-                        id: neighbor.id,
-                        distance,
-                    });
-
-                    results.push(neighbor);
-
-                    if results.len() > ef {
-                        results = results.take_inord(ef);
-                    }
+                if max_distance.is_none_or(|max| distance < max) {
+                    neighbor.set_distance(distance);
+                    Some((neighbor, distance))
+                } else {
+                    None
+                }
+            })
+            .for_each(|(neighbor, distance)| {
+                candidates.push(Candidate {
+                    id: neighbor.id,
+                    distance,
                 });
+
+                results.push(neighbor);
+
+                if results.len() > ef {
+                    results.pop_min();
+                }
+            });
         }
         Ok(results)
     }
@@ -628,7 +645,7 @@ impl HNSW for VectorCore {
                 let id = e.id;
                 let e_conns = BinaryHeap::from(
                     arena,
-                    self.get_neighbors::<F>(txn, label, id, level, None, arena)?,
+                    self.get_neighbors::<F>(txn, label, id, level, None, |_| false, arena)?,
                 );
                 let e_new_conn = self
                     .select_neighbors::<F>(txn, label, &query, e_conns, level, true, None, arena)?;

@@ -40,12 +40,6 @@ pub(super) trait HeapOps<'a, T> {
     fn take_inord(&mut self, k: usize) -> BinaryHeap<'a, T>
     where
         T: Ord;
-
-    /// Get the maximum element from the heap
-    fn get_max<'q>(&'q self) -> Option<&'a T>
-    where
-        T: Ord,
-        'q: 'a;
 }
 
 impl<'a, T> HeapOps<'a, T> for BinaryHeap<'a, T> {
@@ -63,15 +57,6 @@ impl<'a, T> HeapOps<'a, T> for BinaryHeap<'a, T> {
             }
         }
         result
-    }
-
-    #[inline(always)]
-    fn get_max<'q>(&'q self) -> Option<&'a T>
-    where
-        T: Ord,
-        'q: 'a,
-    {
-        self.iter().max()
     }
 }
 

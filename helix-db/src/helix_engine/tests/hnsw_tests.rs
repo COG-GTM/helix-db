@@ -70,3 +70,30 @@ fn test_hnsw_search_returns_results() {
         .unwrap();
     assert!(!results.is_empty());
 }
+
+#[test]
+fn test_binary_heap_pop_min_keeps_heap_order() {
+    use crate::helix_engine::vector_core::binary_heap::BinaryHeap;
+
+    let arena = Bump::new();
+    let mut rng = rand::rng();
+    for len in 0..64 {
+        let mut values: Vec<i32> = (0..len).map(|_| rng.random_range(-50..50)).collect();
+        let mut heap = BinaryHeap::with_capacity(&arena, len);
+        for v in &values {
+            heap.push(*v);
+        }
+        values.sort();
+
+        if let Some(min) = heap.pop_min() {
+            assert_eq!(min, values.remove(0));
+        }
+
+        let mut drained = Vec::new();
+        while let Some(v) = heap.pop() {
+            drained.push(v);
+        }
+        values.reverse();
+        assert_eq!(drained, values);
+    }
+}

@@ -47,6 +47,27 @@ impl<'arena, T: Ord> BinaryHeap<'arena, T> {
         self.data.first()
     }
 
+    /// Removes and returns the smallest element. The smallest element is always a leaf,
+    /// so only the leaf half is scanned and the replacement only needs to sift up.
+    pub fn pop_min(&mut self) -> Option<T> {
+        let len = self.len();
+        if len <= 1 {
+            return self.data.pop();
+        }
+        let mut min_idx = len / 2;
+        for i in (len / 2 + 1)..len {
+            if self.data[i] < self.data[min_idx] {
+                min_idx = i;
+            }
+        }
+        let item = self.data.swap_remove(min_idx);
+        if min_idx < self.len() {
+            // SAFETY: min_idx < self.len()
+            unsafe { self.sift_up(0, min_idx) };
+        }
+        Some(item)
+    }
+
     pub fn from(
         arena: &'arena bumpalo::Bump,
         data: bumpalo::collections::Vec<'arena, T>,
