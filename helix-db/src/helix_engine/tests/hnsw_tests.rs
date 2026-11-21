@@ -85,8 +85,10 @@ fn test_binary_heap_pop_min_keeps_heap_order() {
         }
         values.sort();
 
-        if let Some(min) = heap.pop_min() {
-            assert_eq!(min, values.remove(0));
+        if len == 0 {
+            assert_eq!(heap.pop_min(), None);
+        } else {
+            assert_eq!(heap.pop_min(), Some(values.remove(0)));
         }
 
         let mut drained = Vec::new();
